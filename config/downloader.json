@@ -1,0 +1,61 @@
+{
+  "maxQueueSize": 10,
+  "downloadTimeout": 300000,
+  "rateLimit": {
+    "windowMs": 60000,
+    "maxRequests": 30
+  },
+  "formats": [
+    {
+      "id": "best",
+      "name": "Best Quality",
+      "description": "Best available quality"
+    },
+    {
+      "id": "worst",
+      "name": "Worst Quality",
+      "description": "Lowest quality (smallest file)"
+    },
+    {
+      "id": "bestaudio",
+      "name": "Best Audio",
+      "description": "Best audio only"
+    },
+    {
+      "id": "worstaudio",
+      "name": "Worst Audio",
+      "description": "Lowest audio quality"
+    },
+    {
+      "id": "bestvideo",
+      "name": "Best Video",
+      "description": "Best video only (no audio)"
+    },
+    {
+      "id": "worstvideo",
+      "name": "Worst Video",
+      "description": "Lowest video quality"
+    },
+    {
+      "id": "mp4",
+      "name": "MP4 Format",
+      "description": "MP4 container with best quality"
+    },
+    {
+      "id": "webm",
+      "name": "WebM Format",
+      "description": "WebM container with best quality"
+    }
+  ],
+  "defaultFormat": "best",
+  "supportedPlatforms": [
+    "youtube.com",
+    "youtu.be",
+    "tiktok.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "vimeo.com"
+  ]
+}
