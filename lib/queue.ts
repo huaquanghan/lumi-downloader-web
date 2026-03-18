@@ -1,4 +1,5 @@
 import { DownloadJob, QueueStatus, DownloadOptions } from "@/types";
+import ytdlp, { streamDownload, DownloadResult, DownloadProgress } from "./ytdlp";
 
 /**
  * QueueManager - In-memory FIFO queue for download jobs
@@ -10,6 +11,7 @@ export class QueueManager {
   private currentJobId: string | null = null;
   private maxSize: number;
   private isProcessing: boolean = false;
+  private currentDownloadKill: (() => void) | null = null;
 
   constructor(maxSize: number = 10) {
     this.maxSize = maxSize;
@@ -109,6 +111,7 @@ export class QueueManager {
     if (this.currentJobId === id) {
       this.currentJobId = null;
       this.isProcessing = false;
+      this.currentDownloadKill = null;
     }
 
     // Trigger next job
@@ -129,6 +132,7 @@ export class QueueManager {
     if (this.currentJobId === id) {
       this.currentJobId = null;
       this.isProcessing = false;
+      this.currentDownloadKill = null;
     }
 
     // Trigger next job
@@ -147,10 +151,17 @@ export class QueueManager {
       return false;
     }
 
-    // If currently processing, mark as cancelled
+    // If currently processing, kill the download
     if (this.currentJobId === id) {
       job.status = "cancelled";
       job.completedAt = new Date();
+      
+      // Kill the current download process
+      if (this.currentDownloadKill) {
+        this.currentDownloadKill();
+        this.currentDownloadKill = null;
+      }
+      
       this.currentJobId = null;
       this.isProcessing = false;
       this.processQueue();
@@ -173,10 +184,16 @@ export class QueueManager {
    * Clear entire queue and reset state
    */
   clear(): void {
+    // Cancel current job if any
+    if (this.currentJobId && this.currentDownloadKill) {
+      this.currentDownloadKill();
+    }
+    
     this.jobs.clear();
     this.queue = [];
     this.currentJobId = null;
     this.isProcessing = false;
+    this.currentDownloadKill = null;
   }
 
   /**
@@ -202,9 +219,81 @@ export class QueueManager {
     job.status = "downloading";
     job.startedAt = new Date();
 
-    // Note: Actual download implementation will be added in Phase 04
-    // For now, this is a placeholder for the processor loop
-    // The job will be processed by external download handler
+    try {
+      // Execute the download using yt-dlp
+      const result = await this.executeDownload(job);
+      
+      if (result.success) {
+        this.markCompleted(nextJobId);
+      } else {
+        this.markFailed(nextJobId, result.error || "Download failed");
+      }
+    } catch (err) {
+      this.markFailed(nextJobId, (err as Error).message || "Unknown error");
+    }
+  }
+
+  /**
+   * Execute a download job using yt-dlp
+   */
+  private async executeDownload(job: DownloadJob): Promise<DownloadResult> {
+    return new Promise((resolve, reject) => {
+      // Check if URL is supported
+      if (!ytdlp.isSupportedUrl(job.url)) {
+        reject(new Error(`Unsupported platform: ${job.url}`));
+        return;
+      }
+
+      // Set up progress callback
+      const onProgress = (progress: DownloadProgress) => {
+        this.updateProgress(
+          job.id,
+          progress.percent,
+          progress.speed,
+          progress.eta
+        );
+      };
+
+      // Start the download stream
+      const { stream, kill, waitForCompletion } = streamDownload(
+        {
+          url: job.url,
+          format: job.format,
+          subtitles: job.subtitles,
+          tiktokNoWatermark: job.tiktokNoWatermark,
+        },
+        onProgress
+      );
+
+      // Store kill function for cancellation
+      this.currentDownloadKill = kill;
+
+      // Handle stream data (currently we discard it as we're stream-only, no disk writes)
+      // In a real implementation, this would pipe to response or storage
+      stream.on("data", () => {
+        // Stream is flowing - progress updates come via stderr
+      });
+
+      stream.on("error", (err: Error) => {
+        reject(new Error(`Stream error: ${err.message}`));
+      });
+
+      // Wait for completion
+      waitForCompletion()
+        .then(() => {
+          resolve({
+            success: true,
+            fileName: job.filename || `${job.id}.mp4`,
+          });
+        })
+        .catch((err) => {
+          if (job.status === "cancelled") {
+            resolve({ success: false, error: "Cancelled by user" });
+          } else {
+            reject(err);
+          }
+        });
+    });
   }
 
   /**
@@ -245,8 +334,18 @@ export class QueueManager {
 
     return removed;
   }
+
+  /**
+   * Get current download kill function (for external control)
+   */
+  getCurrentKillFunction(): (() => void) | null {
+    return this.currentDownloadKill;
+  }
 }
 
 // Singleton instance with max queue size from env
 const maxQueueSize = parseInt(process.env.MAX_QUEUE_SIZE || "10", 10);
 export const queueManager = new QueueManager(maxQueueSize);
+
+// Export class for testing
+export default QueueManager;
